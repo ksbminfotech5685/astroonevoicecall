@@ -101,7 +101,7 @@ export default function SiteFooter() {
         <div className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-border pt-4 text-xs opacity-80 md:flex-row">
           <p>© {new Date().getFullYear()} Expert Connect. All rights reserved.</p>
           <p>
-            Mobile-first & accessible • <span className="text-accent">Made with care</span>
+            KSBM INFOTECH PVT LTD • <span className="text-accent">Made with care</span>
           </p>
         </div>
       </div>
