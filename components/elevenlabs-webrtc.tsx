@@ -10,48 +10,40 @@ type ElevenLabsWebRTCProps = {
 }
 
 /**
- * 🔮 Enhanced Version:
- * - Adds support for dynamic Kundli context (from form)
- * - Allows window.startElevenLabsCall(summary) to begin a context-aware call
- * - Keeps your auto-start/stop behavior from parent
+ * Establishes a WebRTC session with an ElevenLabs agent using the Web SDK.
+ * - Starts when `active` becomes true
+ * - Ends when `active` becomes false or on unmount
+ * Note: Works without exposing an API key for public agents (agentId-only).
  */
 export default function ElevenLabsWebRTC({ active, agentId, onError, className }: ElevenLabsWebRTCProps) {
   const conversationRef = React.useRef<any>(null)
   const [status, setStatus] = React.useState<"idle" | "connecting" | "connected" | "error">("idle")
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
-  const [context, setContext] = React.useState<string>("") // store Kundli or user context
 
   React.useEffect(() => {
     let disposed = false
 
-    async function start(contextText?: string) {
+    async function start() {
       try {
         setErrorMsg(null)
         setStatus("connecting")
-        console.log("[AstroOne] ElevenLabs starting via WebRTC. agentId:", agentId)
+        console.log("[v0] ElevenLabs starting via WebRTC. agentId:", agentId)
 
-        // Ask mic permission first
+        // Prompt mic permission first for clearer errors and user prompt
         await navigator.mediaDevices.getUserMedia({ audio: true })
 
-        // Import SDK dynamically
+        // Lazy-load SDK to avoid SSR issues
         const sdk = await import("@elevenlabs/client")
-        const Conversation: any =
-          (sdk as any).Conversation ||
-          (sdk as any).default?.Conversation ||
-          (sdk as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const Conversation: any = (sdk as any).Conversation || (sdk as any).default?.Conversation || (sdk as any)
 
         if (!Conversation?.startSession) {
           throw new Error("ElevenLabs SDK missing Conversation.startSession")
         }
 
-        // Start session with optional context
         const conv = await Conversation.startSession({
           agentId,
           connectionType: "webrtc",
-          // 👇 inject Kundli or user-provided context directly into AI session
-          metadata: contextText
-            ? { system_prompt: `Use this Kundli context to respond wisely: ${contextText}` }
-            : {},
         })
 
         if (disposed) {
@@ -65,18 +57,18 @@ export default function ElevenLabsWebRTC({ active, agentId, onError, className }
         setStatus("connected")
 
         try {
-          conv?.on?.("connected", () => console.log("[AstroOne] ElevenLabs connected ✅"))
-          conv?.on?.("disconnected", () => console.log("[AstroOne] ElevenLabs disconnected ❌"))
+          conv?.on?.("connected", () => console.log("[v0] ElevenLabs connected"))
+          conv?.on?.("disconnected", () => console.log("[v0] ElevenLabs disconnected"))
           conv?.on?.("error", (e: unknown) => {
-            console.log("[AstroOne] ElevenLabs runtime error:", e)
+            console.log("[v0] ElevenLabs runtime error:", e)
             setStatus("error")
             setErrorMsg(e instanceof Error ? e.message : "Runtime error")
           })
         } catch {
-          // ignore event listener issues
+          // optional event API; ignore if not available
         }
       } catch (e: unknown) {
-        console.log("[AstroOne] ElevenLabs start error:", e)
+        console.log("[v0] ElevenLabs start error:", e)
         const err = e instanceof Error ? e : new Error("Failed to start ElevenLabs session")
         setStatus("error")
         setErrorMsg(err.message)
@@ -90,7 +82,7 @@ export default function ElevenLabsWebRTC({ active, agentId, onError, className }
       conversationRef.current = null
       if (conv) {
         try {
-          console.log("[AstroOne] ElevenLabs ending session 📴")
+          console.log("[v0] ElevenLabs ending session")
           await conv.endSession?.()
         } catch {
           try {
@@ -100,18 +92,8 @@ export default function ElevenLabsWebRTC({ active, agentId, onError, className }
       }
     }
 
-    if (active) start(context)
+    if (active) start()
     else stop()
-
-    // 🧠 Register global helper so the form can start ElevenLabs call with Kundli context
-    if (typeof window !== "undefined") {
-      window.startElevenLabsCall = async (kundliSummary: string) => {
-        console.log("[AstroOne] startElevenLabsCall triggered with summary:", kundliSummary)
-        setContext(kundliSummary)
-        await stop()
-        await start(kundliSummary)
-      }
-    }
 
     return () => {
       disposed = true
@@ -133,19 +115,18 @@ export default function ElevenLabsWebRTC({ active, agentId, onError, className }
     <div className={["p-4 rounded-lg border", className].filter(Boolean).join(" ")}>
       <div className="flex items-center justify-between">
         <div className="text-sm font-medium">
-          {status === "idle" && "🎧 Ready to connect"}
-          {status === "connecting" && "🔄 Connecting to agent..."}
-          {status === "connected" && "✅ Live call in progress"}
-          {status === "error" && "❌ Call error"}
+          {status === "idle" && "Ready to connect"}
+          {status === "connecting" && "Connecting to agent..."}
+          {status === "connected" && "Live call in progress"}
+          {status === "error" && "Call error"}
         </div>
         <div className="text-xs text-muted-foreground">Agent: {agentId.slice(0, 8)}…</div>
       </div>
 
       {errorMsg && <p className="mt-2 text-xs text-destructive">{errorMsg}</p>}
 
-      <p className="mt-3 text-xs text-muted-foreground italic">
-        Powered by <strong>ElevenLabs WebRTC</strong>.  
-        Starts with context and auto-ends when your balance finishes.
+      <p className="mt-3 text-xs text-muted-foreground">
+        Powered by ElevenLabs WebRTC. Starts with session and auto-ends when your balance finishes.
       </p>
     </div>
   )
