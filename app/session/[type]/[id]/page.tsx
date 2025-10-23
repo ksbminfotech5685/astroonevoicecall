@@ -1,7 +1,6 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-
 import { useMemo, useState } from "react"
 import useSWR from "swr"
 import { getExpertById } from "@/components/data/experts"
@@ -23,9 +22,58 @@ export default function SessionPage({ params }: Params) {
   const [callActive, setCallActive] = useState(false)
   const [startBalance, setStartBalance] = useState<number | null>(null)
 
+  // kundli form states
+  const [form, setForm] = useState({
+    name: "",
+    dob: "",
+    tob: "",
+    pob: "",
+    question: "",
+  })
+  const [loading, setLoading] = useState(false)
+  const [kundliSummary, setKundliSummary] = useState("")
+
   const hasBalance = useMemo(() => (balance ?? 0) > 0, [balance])
   const isLowForThisRate = useMemo(() => (balance ?? 0) < rate, [balance, rate])
   const canStart = useMemo(() => (balance ?? 0) >= rate, [balance, rate])
+
+  // === handle kundli form submission ===
+  const handleFormSubmit = async () => {
+    if (!form.name || !form.dob || !form.tob || !form.pob || !form.question) {
+      alert("Please fill all the details before starting.")
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch("/api/kundli_full", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      })
+      const data = await res.json()
+
+      if (data?.success) {
+        const summary = data?.summary_for_agent || data?.kundli_prediction?.prediction || "Kundli data generated"
+        setKundliSummary(summary)
+
+        // Automatically start ElevenLabs session with kundli context
+        if (window.startElevenLabsCall) {
+          window.startElevenLabsCall(summary)
+        } else {
+          console.warn("startElevenLabsCall() not found — check ElevenLabs init")
+          setCallActive(true) // fallback
+        }
+      } else {
+        alert("Failed to generate Kundli. Please try again.")
+      }
+    } catch (err) {
+      console.error("Form Submit Error:", err)
+      alert("Something went wrong while fetching Kundli data.")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (!expert) {
     return (
@@ -53,11 +101,68 @@ export default function SessionPage({ params }: Params) {
         <p className="text-sm text-muted-foreground">Balance: ₹{balance?.toFixed(2)}</p>
       </div>
 
-      {/* Show a low balance warning, but don't block starting the session */}
+      {/* Kundli Form Section */}
+      <div className="bg-white shadow-sm border rounded-lg p-4">
+        <h2 className="text-lg font-semibold mb-3 text-primary">🔮 Kundli Details</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input
+            type="text"
+            placeholder="Name"
+            className="border rounded-md p-2"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Date of Birth (YYYY-MM-DD)"
+            className="border rounded-md p-2"
+            value={form.dob}
+            onChange={(e) => setForm({ ...form, dob: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Time of Birth (HH:MM)"
+            className="border rounded-md p-2"
+            value={form.tob}
+            onChange={(e) => setForm({ ...form, tob: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Place of Birth"
+            className="border rounded-md p-2"
+            value={form.pob}
+            onChange={(e) => setForm({ ...form, pob: e.target.value })}
+          />
+        </div>
+
+        <textarea
+          placeholder="Your Question (e.g. Career, Marriage, Health...)"
+          className="border rounded-md p-2 mt-3 w-full"
+          rows={2}
+          value={form.question}
+          onChange={(e) => setForm({ ...form, question: e.target.value })}
+        ></textarea>
+
+        <button
+          onClick={handleFormSubmit}
+          className="bg-primary text-white px-5 py-2 rounded-md mt-4 hover:opacity-90"
+          disabled={loading}
+        >
+          {loading ? "⏳ Generating Kundli..." : "✨ Start Kundli Voice Call"}
+        </button>
+
+        {kundliSummary && (
+          <div className="mt-3 bg-muted rounded-md p-3 text-sm text-muted-foreground">
+            <strong>Kundli Summary:</strong> {kundliSummary}
+          </div>
+        )}
+      </div>
+
+      {/* Wallet and balance info */}
       {isLowForThisRate && (
         <div className="rounded-md border p-4">
           <p className="text-sm">
-            Your balance is lower than the per-minute rate (₹{rate}). You need at least ₹{rate} to start this session.
+            Your balance is lower than ₹{rate}. You need at least ₹{rate} to start this session.
           </p>
           <div className="mt-3 flex gap-2">
             {[rate, rate * 3, 999].map((amt, i) => (
@@ -69,25 +174,25 @@ export default function SessionPage({ params }: Params) {
                   mutate()
                 }}
               >
-                Add now • ₹{Math.ceil(amt)}
+                Add ₹{Math.ceil(amt)}
               </button>
             ))}
           </div>
         </div>
       )}
 
+      {/* Timer & ElevenLabs */}
       <SessionTimer
         pricePerMinute={rate}
         disabled={!canStart}
         onStart={() => {
-          // console.log("[v0] SessionTimer onStart fired. type:", params.type)
           setStartBalance(balance ?? 0)
           if (params.type === "call") {
             setCallActive(true)
           }
         }}
         onTick={() => {
-          const ok = deductPerMinute(rate / 60) // per second deduction
+          const ok = deductPerMinute(rate / 60)
           mutate()
           if (!ok) {
             setCallActive(false)
@@ -121,7 +226,7 @@ export default function SessionPage({ params }: Params) {
 
       {params.type === "chat" ? (
         <div className="rounded-lg border p-4 min-h-48">
-          <p className="text-sm text-muted-foreground mb-2">This is a demo chat area (placeholder).</p>
+          <p className="text-sm text-muted-foreground mb-2">This is a demo chat area.</p>
           <div className="rounded-md bg-muted p-3 text-sm">Example: Hello, how can I assist you today?</div>
         </div>
       ) : (
@@ -130,7 +235,6 @@ export default function SessionPage({ params }: Params) {
           agentId="agent_4201k5ttey26eexaz3cbwfb7s9dy"
           className="rounded-lg border"
           onError={(e) => {
-            // Optional: surface error to user or toast
             console.log("[v0] ElevenLabs onError:", e.message)
           }}
         />
